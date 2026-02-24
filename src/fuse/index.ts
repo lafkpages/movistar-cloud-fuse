@@ -3,6 +3,53 @@ import type { MovistarCloudClient } from "movistar-cloud";
 import { mountPath, volname } from "../env";
 import { createStat, dirStat } from "./stat";
 
+async function traversePath(
+  mv: MovistarCloudClient,
+  rootFolderId: number,
+  path: string,
+  expectsDir: boolean,
+) {
+  const parts = path.replace(/^\/|\/$/g, "").split("/");
+  let currentPartIndex = 0;
+  let currentFolderId = rootFolderId;
+
+  if (parts.length > 1) {
+    for (; currentPartIndex < parts.length - 1; currentPartIndex++) {
+      const folder = await mv.findFolder(
+        currentFolderId,
+        parts[currentPartIndex]!,
+      );
+
+      if (!folder) {
+        return { folder: null, file: null, err: Fuse.ENOENT };
+      }
+
+      currentFolderId = folder.id;
+    }
+  }
+
+  const folder = await mv.findFolder(currentFolderId, parts[currentPartIndex]!);
+
+  if (folder) {
+    return { folder, file: null, err: 0 };
+  }
+
+  if (expectsDir) {
+    return { folder: null, file: null, err: Fuse.ENOTDIR };
+  }
+
+  const file = await mv.findFile(currentFolderId, parts[currentPartIndex]!, [
+    "name",
+    "size",
+  ]);
+
+  if (file) {
+    return { folder: null, file, err: 0 };
+  }
+
+  return { folder: null, file: null, err: Fuse.ENOENT };
+}
+
 export async function main(mv: MovistarCloudClient) {
   await mv.listRoots();
 
@@ -18,38 +65,69 @@ export async function main(mv: MovistarCloudClient) {
     async readdir(path, cb) {
       console.log("readdir(%s)", path);
 
+      let folderId: number;
+
       if (path === "/") {
-        const folders = await mv.listFolders(rootFolderId);
-        const files = await mv.listFiles(rootFolderId, ["name", "size"]);
-
-        const names: string[] = [];
-        const stats: Fuse.Stats[] = [];
-
-        for (const f of folders) {
-          names.push(f.name);
-          stats.push(dirStat);
-        }
-
-        for (const f of files) {
-          names.push(f.name!);
-          stats.push(createStat({ size: f.size! }));
-        }
-
-        console.log(
-          "Found %d folders and %d files",
-          folders.length,
-          files.length,
+        folderId = rootFolderId;
+      } else if (path.startsWith("/")) {
+        const { folder, err } = await traversePath(
+          mv,
+          rootFolderId,
+          path,
+          true,
         );
 
-        return cb(0, names, stats);
+        if (err) {
+          return cb(err);
+        }
+
+        folderId = folder!.id;
+      } else {
+        return cb(Fuse.ENOENT);
       }
-      return cb(Fuse.ENOENT);
+
+      const folders = await mv.listFolders(folderId);
+      const files = await mv.listFiles(folderId, ["name", "size"]);
+
+      const names: string[] = [];
+      const stats: Fuse.Stats[] = [];
+
+      for (const f of folders) {
+        names.push(f.name);
+        stats.push(dirStat);
+      }
+
+      for (const f of files) {
+        names.push(f.name!);
+        stats.push(createStat({ size: f.size! }));
+      }
+
+      return cb(0, names, stats);
     },
-    getattr(path, cb) {
+    async getattr(path, cb) {
       console.log("getattr(%s)", path);
 
       if (path === "/") {
         return cb(0, dirStat);
+      }
+
+      if (!path.startsWith("/")) {
+        return cb(Fuse.ENOENT);
+      }
+
+      const { folder, file, err } = await traversePath(
+        mv,
+        rootFolderId,
+        path,
+        path.endsWith("/"),
+      );
+
+      if (err) {
+        return cb(err);
+      } else if (folder) {
+        return cb(0, dirStat);
+      } else if (file) {
+        return cb(0, createStat({ size: file.size! }));
       }
 
       return cb(Fuse.ENOENT);
