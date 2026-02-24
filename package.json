@@ -1,0 +1,24 @@
+{
+  "name": "movistar-cloud-fuse",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@cocalc/fuse-native": "^2.4.3",
+    "application-config-path": "^1.0.0",
+    "movistar-cloud": "link:movistar-cloud"
+  },
+  "trustedDependencies": [
+    "@cocalc/fuse-native"
+  ],
+  "scripts": {
+    "build": "bun run ./scripts/build.ts",
+    "run-dev": "bun run build --dev && node ./dist/index.js"
+  }
+}
