@@ -150,9 +150,12 @@ export async function main(mv: MovistarCloudClient) {
   };
 
   const fuse = new Fuse(mountPath, ops, {
-    debug: true,
-    mkdir: true,
     volname,
+    mkdir: true,
+
+    timeout: 120_000,
+
+    debug: true,
   });
 
   fuse.mount((err) => {
