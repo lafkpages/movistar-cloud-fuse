@@ -17,6 +17,9 @@
   "trustedDependencies": [
     "@cocalc/fuse-native"
   ],
+  "patchedDependencies": {
+    "@cocalc/fuse-native@2.4.3": "patches/@cocalc%2Ffuse-native@2.4.3.patch"
+  },
   "scripts": {
     "build": "bun run ./scripts/build.ts",
     "run-dev": "bun run build --dev && node ./dist/index.js"

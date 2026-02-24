@@ -20,6 +20,9 @@
   "trustedDependencies": [
     "@cocalc/fuse-native",
   ],
+  "patchedDependencies": {
+    "@cocalc/fuse-native@2.4.3": "patches/@cocalc%2Ffuse-native@2.4.3.patch",
+  },
   "packages": {
     "@cocalc/fuse-native": ["@cocalc/fuse-native@2.4.3", "", { "dependencies": { "nanoresource": "^1.3.0", "napi-macros": "^2.0.0", "node-gyp-build": "^4.8.0" }, "bin": { "fuse-native": "bin.js" } }, "sha512-oINV1aDDPHTZkIIjDFPMAGFypdoi2Vsy2OB+uPljIibcosRW/oTkDsfRUKFPcHgRx7qwVlQ4rcHH2T7mYsxTTw=="],
 

@@ -1,7 +1,7 @@
 import Fuse from "@cocalc/fuse-native";
 import type { MovistarCloudClient } from "movistar-cloud";
-import { mountPath } from "../env";
-import { dirStat } from "./stat";
+import { mountPath, volname } from "../env";
+import { createStat, dirStat } from "./stat";
 
 export async function main(mv: MovistarCloudClient) {
   await mv.listRoots();
@@ -20,12 +20,28 @@ export async function main(mv: MovistarCloudClient) {
 
       if (path === "/") {
         const folders = await mv.listFolders(rootFolderId);
-        const files = await mv.listFiles(rootFolderId);
+        const files = await mv.listFiles(rootFolderId, ["name", "size"]);
 
-        return cb(0, [
-          ...folders.map((f) => f.name),
-          ...files.map((f) => f.name!),
-        ]);
+        const names: string[] = [];
+        const stats: Fuse.Stats[] = [];
+
+        for (const f of folders) {
+          names.push(f.name);
+          stats.push(dirStat);
+        }
+
+        for (const f of files) {
+          names.push(f.name!);
+          stats.push(createStat({ size: f.size! }));
+        }
+
+        console.log(
+          "Found %d folders and %d files",
+          folders.length,
+          files.length,
+        );
+
+        return cb(0, names, stats);
       }
       return cb(Fuse.ENOENT);
     },
@@ -58,7 +74,7 @@ export async function main(mv: MovistarCloudClient) {
   const fuse = new Fuse(mountPath, ops, {
     debug: true,
     mkdir: true,
-    // displayFolder: "MovistarCloud",
+    volname,
   });
 
   fuse.mount((err) => {

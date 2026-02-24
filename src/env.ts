@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { basename } from "node:path";
 
 process.chdir(homedir());
 
@@ -15,3 +16,4 @@ if (isNaN(phoneNumber) || phoneNumber < 1) {
 
 export const mountPath =
   process.env.MOVISTAR_CLOUD_FUSE_MOUNT_PATH || "Movistar Cloud";
+export const volname = basename(mountPath);

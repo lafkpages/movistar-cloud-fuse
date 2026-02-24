@@ -25,7 +25,6 @@ export const dirStat: Fuse.Stats = {
  * Helper to generate a full POSIX stat object with sensible defaults
  */
 export function createStat(
-  isDir: boolean,
   opts: Partial<Fuse.Stats> & Pick<Fuse.Stats, "size">,
 ): Fuse.Stats {
   return {
@@ -33,8 +32,8 @@ export function createStat(
     atime: noDate,
     ctime: noDate,
 
-    mode: isDir ? 0o40755 : 0o100644,
-    nlink: isDir ? 2 : 1,
+    mode: 0o100644,
+    nlink: 1,
     uid: process.getuid ? process.getuid() : 0,
     gid: process.getgid ? process.getgid() : 0,
 
