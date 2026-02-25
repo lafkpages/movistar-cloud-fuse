@@ -77,6 +77,7 @@ export function getOps(args: {
 
       return cb(0, names, stats);
     },
+
     async getattr(path, cb) {
       const now = Date.now();
       const cached = opsCache.getattr.get(path);
@@ -119,6 +120,7 @@ export function getOps(args: {
 
       return cb(Fuse.ENOENT);
     },
+
     async open(path, flags, cb) {
       console.log("open(%s, %d)", path, flags);
 
@@ -188,6 +190,7 @@ export function getOps(args: {
 
       return cb(0, fd);
     },
+
     async read(path, fd, buf, len, pos, cb) {
       console.log("read(%s, %d, %d, %d)", path, fd, len, pos);
 
@@ -231,6 +234,7 @@ export function getOps(args: {
 
       return cb(bytesRead);
     },
+
     async release(path, fd, cb) {
       console.log("release(%s, %d)", path, fd);
 
@@ -250,6 +254,7 @@ export function getOps(args: {
 
       return cb(Fuse.EBADF);
     },
+
     async mkdir(path, mode, cb) {
       console.log("mkdir(%s, %o)", path, mode);
 
@@ -302,6 +307,7 @@ export function getOps(args: {
 
       return cb(0);
     },
+
     async rmdir(path, cb) {
       console.log("rmdir(%s)", path);
 
@@ -352,6 +358,7 @@ export function getOps(args: {
 
       return cb(0);
     },
+
     async unlink(path, cb) {
       console.log("unlink(%s)", path);
 
@@ -393,6 +400,95 @@ export function getOps(args: {
       opsCache.getattr.set(path, {
         timestamp: now,
         cb: [Fuse.ENOENT, undefined],
+      });
+
+      return cb(0);
+    },
+
+    async rename(src, dest, cb) {
+      console.log("rename(%s, %s)", src, dest);
+
+      if (!src.startsWith("/") || !dest.startsWith("/")) {
+        return cb(Fuse.ENOENT);
+      }
+
+      if (src === "/" || dest === "/") {
+        return cb(Fuse.EBUSY);
+      }
+
+      const parsedSrc = parsePath(src);
+      const parsedDest = parsePath(dest);
+
+      if (parsedSrc.dir !== parsedDest.dir) {
+        // TODO: for now, only allow renaming within the same directory
+        return cb(Fuse.EXDEV);
+      }
+
+      const {
+        file: srcFile,
+        folder: srcFolder,
+        err,
+      } = await traversePath(
+        mv,
+        rootFolderId,
+        src,
+        ExpectedItemType.ExpectEither,
+        ["name"],
+      );
+
+      if (err) {
+        return cb(err);
+      }
+
+      if (srcFolder) {
+        // TODO: mv does not support renaming folders yet
+        return cb(Fuse.EIO);
+      }
+
+      const { file: destFile, err: destErr } = await traversePath(
+        mv,
+        rootFolderId,
+        dest,
+        ExpectedItemType.ExpectEither,
+        ["name"],
+      );
+
+      if (destErr && destErr !== Fuse.ENOENT) {
+        return cb(destErr);
+      }
+
+      if (destFile) {
+        return cb(Fuse.EEXIST);
+      }
+
+      await mv.renameFile(srcFile!.id, parsedDest.base);
+
+      // Update cache of folder
+      const cache = opsCache.readdir.get(parsedSrc.dir);
+      if (cache && !cache.cb[0]) {
+        const idx = cache.cb[1]!.indexOf(parsedSrc.base);
+        if (idx !== -1) {
+          cache.cb[1]![idx] = parsedDest.base;
+        }
+      }
+
+      // Update cache of renamed file
+      const now = Date.now();
+      opsCache.readdir.set(src, {
+        timestamp: now,
+        cb: [Fuse.ENOENT, undefined, undefined],
+      });
+      opsCache.readdir.set(dest, {
+        timestamp: now,
+        cb: [0, undefined, undefined],
+      });
+      opsCache.getattr.set(src, {
+        timestamp: now,
+        cb: [Fuse.ENOENT, undefined],
+      });
+      opsCache.getattr.set(dest, {
+        timestamp: now,
+        cb: [0, createStat({ size: srcFile!.size! })],
       });
 
       return cb(0);
