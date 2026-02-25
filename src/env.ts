@@ -17,3 +17,6 @@ if (isNaN(phoneNumber) || phoneNumber < 1) {
 export const mountPath =
   process.env.MOVISTAR_CLOUD_FUSE_MOUNT_PATH || "Movistar Cloud";
 export const volname = basename(mountPath);
+
+export const cacheDir =
+  process.env.MOVISTAR_CLOUD_CACHE_DIR || ".movistar-cloud-cache";

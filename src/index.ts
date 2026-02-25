@@ -3,6 +3,7 @@ import { restoreSessionOrStartLoginFlow } from "movistar-cloud/login/flow";
 
 import { MovistarCloudSessionStore } from "movistar-cloud/login/sessions";
 import { join } from "node:path";
+import PQueue from "p-queue";
 import { phoneNumber } from "./env";
 import { main } from "./fuse";
 
@@ -12,10 +13,29 @@ const sessions = new MovistarCloudSessionStore(
   join(appConfigDir, "sessions.json"),
 );
 
-const mv = await restoreSessionOrStartLoginFlow(sessions, phoneNumber);
+const pQueue = new PQueue({
+  concurrency: 3,
+  interval: 5000,
+  intervalCap: 10,
+  strict: true,
+  timeout: 120_000,
+});
+
+const mv = await restoreSessionOrStartLoginFlow(sessions, phoneNumber, {
+  pQueue,
+});
 
 if (!mv) {
   process.exit(1);
 }
+
+setInterval(() => {
+  console.log(
+    "PQueue size:",
+    pQueue.size,
+    "\tis saturated:",
+    pQueue.isSaturated,
+  );
+}, 1000).unref();
 
 await main(mv);
