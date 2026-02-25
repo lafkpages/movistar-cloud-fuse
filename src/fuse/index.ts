@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Writable } from "node:stream";
 import { cacheDir, mountPath, volname } from "../env";
 import { ExpectedItemType, traversePath } from "../traverse";
+import { isErrno } from "../types";
 import { opsCacheLifetime, wrapCbWithCache, type OpsCache } from "./cache";
 import { createStat, dirStat } from "./stat";
 
@@ -14,7 +15,7 @@ const openFiles = new Map<number, OpenFile>();
 
 interface OpenFile {
   remoteFileId: number;
-  localCacheFileHandle: FileHandle | null;
+  fileHandle: Promise<FileHandle>;
 }
 
 const opsCache: OpsCache = {
@@ -148,27 +149,34 @@ export async function main(mv: MovistarCloudClient) {
       }
 
       const fd = fdCounter++;
+
+      const cacheFilePath = join(cacheDir, `${file!.id}`);
+      const cacheFileHandle = await open(
+        cacheFilePath,
+        constants.O_CREAT | constants.O_RDWR,
+      );
+
+      const { resolve, reject, promise } = Promise.withResolvers<FileHandle>();
+
       const openFile: OpenFile = {
         remoteFileId: file!.id,
-        localCacheFileHandle: null,
+        fileHandle: promise,
       };
       openFiles.set(fd, openFile);
 
-      mv.downloadFile(file!.url!).then(async (resp) => {
-        if (!resp.body) {
-          throw new Error(`Expected a response body when downloading file`);
-        }
+      mv.downloadFile(file!.url!)
+        .then(async (resp) => {
+          if (!resp.body) {
+            throw new Error(`Expected a response body when downloading file`);
+          }
 
-        const cacheFilePath = join(cacheDir, `${file!.id}`);
+          await resp.body!.pipeTo(
+            Writable.toWeb(cacheFileHandle.createWriteStream()),
+          );
 
-        openFile.localCacheFileHandle = await open(
-          cacheFilePath,
-          constants.O_CREAT | constants.O_RDWR,
-        );
-        await resp.body.pipeTo(
-          Writable.toWeb(openFile.localCacheFileHandle.createWriteStream()),
-        );
-      });
+          resolve(cacheFileHandle);
+        })
+        .catch(reject);
 
       return cb(0, fd);
     },
@@ -181,16 +189,23 @@ export async function main(mv: MovistarCloudClient) {
         return cb(Fuse.EBADF);
       }
 
-      if (!openFile.localCacheFileHandle) {
-        return cb(Fuse.EAGAIN);
+      const fh = await openFile.fileHandle;
+
+      let bytesRead: number;
+      try {
+        ({ bytesRead } = await fh.read(buf, 0, len, pos));
+      } catch (err) {
+        if (isErrno(err)) {
+          switch (err.code) {
+            case "EBADF":
+              return cb(Fuse.EBADF);
+          }
+        }
+
+        throw err;
       }
 
-      const { bytesRead } = await openFile.localCacheFileHandle.read(
-        buf,
-        0,
-        len,
-        pos,
-      );
+      console.log("read: fd=%d bytesRead=%d", fd, bytesRead);
 
       return cb(bytesRead);
     },
@@ -200,11 +215,9 @@ export async function main(mv: MovistarCloudClient) {
       const openFile = openFiles.get(fd);
 
       if (openFile) {
-        if (openFile.localCacheFileHandle) {
-          await openFile.localCacheFileHandle.close();
-          openFiles.delete(fd);
-          return cb(0);
-        }
+        await (await openFile.fileHandle).close();
+        openFiles.delete(fd);
+        return cb(0);
       }
 
       return cb(Fuse.EBADF);
