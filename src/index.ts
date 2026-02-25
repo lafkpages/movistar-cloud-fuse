@@ -16,7 +16,7 @@ const sessions = new MovistarCloudSessionStore(
 const pQueue = new PQueue({
   concurrency: 3,
   interval: 5000,
-  intervalCap: 10,
+  intervalCap: 25,
   strict: true,
   timeout: 120_000,
 });

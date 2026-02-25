@@ -3,10 +3,8 @@ import type { MovistarCloudClient } from "movistar-cloud";
 import type { FileHandle } from "node:fs/promises";
 import { constants, mkdir, open } from "node:fs/promises";
 import { join } from "node:path";
-import { Writable } from "node:stream";
 import { cacheDir, mountPath, volname } from "../env";
 import { ExpectedItemType, traversePath } from "../traverse";
-import { isErrno } from "../types";
 import { opsCacheLifetime, wrapCbWithCache, type OpsCache } from "./cache";
 import { createStat, dirStat } from "./stat";
 
@@ -15,7 +13,17 @@ const openFiles = new Map<number, OpenFile>();
 
 interface OpenFile {
   remoteFileId: number;
-  fileHandle: Promise<FileHandle>;
+  cacheFileHandle: FileHandle;
+  bytesDownloaded: number;
+  done: boolean;
+  closed: boolean;
+  waiters: (() => void)[];
+}
+
+function notifyWaiters(openFile: OpenFile) {
+  const waiters = openFile.waiters;
+  openFile.waiters = [];
+  for (const w of waiters) w();
 }
 
 const opsCache: OpsCache = {
@@ -156,29 +164,49 @@ export async function main(mv: MovistarCloudClient) {
         constants.O_CREAT | constants.O_RDWR,
       );
 
-      const { resolve, reject, promise } = Promise.withResolvers<FileHandle>();
-
       const openFile: OpenFile = {
         remoteFileId: file!.id,
-        fileHandle: promise,
+        cacheFileHandle,
+        bytesDownloaded: 0,
+        done: false,
+        closed: false,
+        waiters: [],
       };
       openFiles.set(fd, openFile);
 
-      mv.downloadFile(file!.url!)
-        .then(async (resp) => {
-          if (!resp.body) {
-            throw new Error(`Expected a response body when downloading file`);
+      // Download in background, streaming chunks to cache file
+      mv.downloadFile(file!.url!).then(async (resp) => {
+        if (!resp.body) {
+          throw new Error(`Expected a response body when downloading file`);
+        }
+
+        const reader = resp.body.getReader();
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
           }
 
-          await resp.body!.pipeTo(
-            Writable.toWeb(
-              cacheFileHandle.createWriteStream({ autoClose: false }),
-            ),
+          await cacheFileHandle.write(
+            value,
+            0,
+            value.length,
+            openFile.bytesDownloaded,
           );
 
-          resolve(cacheFileHandle);
-        })
-        .catch(reject);
+          openFile.bytesDownloaded += value.length;
+          notifyWaiters(openFile);
+        }
+
+        openFile.done = true;
+        notifyWaiters(openFile);
+
+        if (openFile.closed) {
+          await cacheFileHandle.close();
+        }
+      });
 
       return cb(0, fd);
     },
@@ -191,21 +219,35 @@ export async function main(mv: MovistarCloudClient) {
         return cb(Fuse.EBADF);
       }
 
-      const fh = await openFile.fileHandle;
-
-      let bytesRead: number;
-      try {
-        ({ bytesRead } = await fh.read(buf, 0, len, pos));
-      } catch (err) {
-        if (isErrno(err)) {
-          switch (err.code) {
-            case "EBADF":
-              return cb(Fuse.EBADF);
-          }
-        }
-
-        throw err;
+      // Wait until we have enough data or the download finishes
+      while (
+        !openFile.done &&
+        !openFile.closed &&
+        openFile.bytesDownloaded < pos + len
+      ) {
+        await new Promise<void>((resolve) => openFile.waiters.push(resolve));
       }
+
+      if (openFile.closed && openFile.bytesDownloaded <= pos) {
+        return cb(Fuse.EIO);
+      }
+
+      // Read whatever is available
+      const available = Math.max(
+        0,
+        Math.min(len, openFile.bytesDownloaded - pos),
+      );
+
+      if (available <= 0) {
+        return cb(0);
+      }
+
+      const { bytesRead } = await openFile.cacheFileHandle.read(
+        buf,
+        0,
+        available,
+        pos,
+      );
 
       console.log("read: fd=%d bytesRead=%d", fd, bytesRead);
 
@@ -217,8 +259,14 @@ export async function main(mv: MovistarCloudClient) {
       const openFile = openFiles.get(fd);
 
       if (openFile) {
-        await (await openFile.fileHandle).close();
         openFiles.delete(fd);
+        openFile.closed = true;
+
+        // Allow download to finish in background if not done yet
+        if (openFile.done) {
+          await openFile.cacheFileHandle.close();
+        }
+
         return cb(0);
       }
 
@@ -246,6 +294,11 @@ export async function main(mv: MovistarCloudClient) {
   // Handle Ctrl+C gracefully to unmount
   process.on("SIGINT", function () {
     fuse.unmount((err) => {
+      if (err) {
+        console.error("Error unmounting drive:", err);
+        process.exit(1);
+      }
+
       console.log("\nUnmounted.");
       process.exit();
     });
