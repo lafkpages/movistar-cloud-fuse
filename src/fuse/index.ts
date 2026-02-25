@@ -328,6 +328,56 @@ export async function main(mv: MovistarCloudClient) {
 
       return cb(0);
     },
+    async rmdir(path, cb) {
+      console.log("rmdir(%s)", path);
+
+      if (!path.startsWith("/")) {
+        return cb(Fuse.ENOENT);
+      }
+
+      if (path === "/") {
+        return cb(Fuse.EBUSY);
+        // TODO: is this the right error code?
+      }
+
+      const { folder, err } = await traversePath(
+        mv,
+        rootFolderId,
+        path,
+        ExpectedItemType.ExpectDirectory,
+        ["name"],
+      );
+
+      if (err) {
+        return cb(err);
+      }
+
+      await mv.removeFolders([folder!.id]);
+
+      // Update cache of parent folder
+      const parsedPath = parsePath(path);
+      const cache = opsCache.readdir.get(parsedPath.dir);
+      if (cache && !cache.cb[0]) {
+        const idx = cache.cb[1]!.indexOf(parsedPath.base);
+        if (idx !== -1) {
+          cache.cb[1]!.splice(idx, 1);
+          cache.cb[2]!.splice(idx, 1);
+        }
+      }
+
+      // Update cache of removed folder
+      const now = Date.now();
+      opsCache.readdir.set(path, {
+        timestamp: now,
+        cb: [Fuse.ENOENT, undefined, undefined],
+      });
+      opsCache.getattr.set(path, {
+        timestamp: now,
+        cb: [Fuse.ENOENT, undefined],
+      });
+
+      return cb(0);
+    },
   };
 
   const fuse = new Fuse(mountPath, ops, {
