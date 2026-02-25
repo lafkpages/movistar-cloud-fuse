@@ -1,6 +1,6 @@
 import type { MovistarCloudClient } from "movistar-cloud";
 import type { OpsCache } from "./cache";
-import type { OpenFiles } from "./open-files";
+import type { LocalFiles, OpenFiles } from "./open-files";
 
 import { mkdir } from "node:fs/promises";
 
@@ -13,6 +13,9 @@ const opsCache: OpsCache = {
   readdir: new Map(),
   getattr: new Map(),
 };
+
+// Track locally-created files by path → cache file path, for reads before remote sync
+const localFiles: LocalFiles = new Map();
 
 const openFiles: OpenFiles = new Map();
 let fdCounter = 100;
@@ -32,7 +35,7 @@ export async function main(mv: MovistarCloudClient) {
 
   const fuse = new Fuse(
     mountPath,
-    getOps({ mv, rootFolderId, opsCache, openFiles, fdCounter }),
+    getOps({ mv, rootFolderId, opsCache, localFiles, openFiles, fdCounter }),
     {
       volname,
       mkdir: true,
