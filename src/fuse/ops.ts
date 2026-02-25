@@ -352,5 +352,50 @@ export function getOps(args: {
 
       return cb(0);
     },
+    async unlink(path, cb) {
+      console.log("unlink(%s)", path);
+
+      if (!path.startsWith("/")) {
+        return cb(Fuse.ENOENT);
+      }
+
+      const { file, err } = await traversePath(
+        mv,
+        rootFolderId,
+        path,
+        ExpectedItemType.ExpectFile,
+        ["name"],
+      );
+
+      if (err) {
+        return cb(err);
+      }
+
+      await mv.removeFiles([file!.id]);
+
+      // Update cache of parent folder
+      const parsedPath = parsePath(path);
+      const cache = opsCache.readdir.get(parsedPath.dir);
+      if (cache && !cache.cb[0]) {
+        const idx = cache.cb[1]!.indexOf(parsedPath.base);
+        if (idx !== -1) {
+          cache.cb[1]!.splice(idx, 1);
+          cache.cb[2]!.splice(idx, 1);
+        }
+      }
+
+      // Update cache of removed file
+      const now = Date.now();
+      opsCache.readdir.set(path, {
+        timestamp: now,
+        cb: [Fuse.ENOENT, undefined, undefined],
+      });
+      opsCache.getattr.set(path, {
+        timestamp: now,
+        cb: [Fuse.ENOENT, undefined],
+      });
+
+      return cb(0);
+    },
   };
 }
