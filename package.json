@@ -4,7 +4,9 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@types/bun": "latest"
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
+    "@types/bun": "latest",
+    "prettier": "^3.8.1"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -22,6 +24,7 @@
     "@cocalc/fuse-native@2.4.3": "patches/@cocalc%2Ffuse-native@2.4.3.patch"
   },
   "scripts": {
+    "format": "bun run ./scripts/format.ts",
     "build": "bun run ./scripts/build.ts",
     "run-dev": "bun run build --dev && node ./dist/index.js"
   }

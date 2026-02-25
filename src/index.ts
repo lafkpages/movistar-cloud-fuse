@@ -1,9 +1,10 @@
+import { join } from "node:path";
+
 import applicationConfigPath from "application-config-path";
 import { restoreSessionOrStartLoginFlow } from "movistar-cloud/login/flow";
-
 import { MovistarCloudSessionStore } from "movistar-cloud/login/sessions";
-import { join } from "node:path";
 import PQueue from "p-queue";
+
 import { phoneNumber } from "./env";
 import { main } from "./fuse";
 

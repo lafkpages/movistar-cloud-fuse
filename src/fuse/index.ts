@@ -1,11 +1,15 @@
-import Fuse from "@cocalc/fuse-native";
 import type { MovistarCloudClient } from "movistar-cloud";
 import type { FileHandle } from "node:fs/promises";
+import type { OpsCache } from "./cache";
+
 import { constants, mkdir, open } from "node:fs/promises";
 import { join } from "node:path";
+
+import Fuse from "@cocalc/fuse-native";
+
 import { cacheDir, mountPath, volname } from "../env";
 import { ExpectedItemType, traversePath } from "../traverse";
-import { opsCacheLifetime, wrapCbWithCache, type OpsCache } from "./cache";
+import { opsCacheLifetime, wrapCbWithCache } from "./cache";
 import { createStat, dirStat } from "./stat";
 
 let fdCounter = 100;

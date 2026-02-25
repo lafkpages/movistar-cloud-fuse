@@ -1,6 +1,7 @@
-import Fuse from "@cocalc/fuse-native";
 import type { MovistarCloudClient } from "movistar-cloud";
 import type { MediaField } from "../../movistar-cloud/src/schemas/media";
+
+import Fuse from "@cocalc/fuse-native";
 
 export const enum ExpectedItemType {
   ExpectFile,
