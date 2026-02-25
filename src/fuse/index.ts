@@ -171,7 +171,9 @@ export async function main(mv: MovistarCloudClient) {
           }
 
           await resp.body!.pipeTo(
-            Writable.toWeb(cacheFileHandle.createWriteStream()),
+            Writable.toWeb(
+              cacheFileHandle.createWriteStream({ autoClose: false }),
+            ),
           );
 
           resolve(cacheFileHandle);
