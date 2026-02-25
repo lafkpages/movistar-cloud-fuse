@@ -3,7 +3,7 @@ import type { FileHandle } from "node:fs/promises";
 import type { OpsCache } from "./cache";
 
 import { constants, mkdir, open } from "node:fs/promises";
-import { join } from "node:path";
+import { join, parse as parsePath } from "node:path";
 
 import Fuse from "@cocalc/fuse-native";
 
@@ -275,6 +275,58 @@ export async function main(mv: MovistarCloudClient) {
       }
 
       return cb(Fuse.EBADF);
+    },
+    async mkdir(path, mode, cb) {
+      console.log("mkdir(%s, %o)", path, mode);
+
+      if (!path.startsWith("/")) {
+        return cb(Fuse.ENOENT);
+      }
+
+      const parsedPath = parsePath(path);
+
+      let parentFolderId: number;
+
+      if (parsedPath.dir === "/") {
+        parentFolderId = rootFolderId;
+      } else {
+        const { folder, err } = await traversePath(
+          mv,
+          rootFolderId,
+          parsedPath.dir,
+          ExpectedItemType.ExpectDirectory,
+          ["name"],
+        );
+
+        if (err) {
+          return cb(err);
+        }
+
+        parentFolderId = folder!.id;
+      }
+
+      await mv.createFolder(parsedPath.base, parentFolderId);
+
+      // Update cache of parent folder
+      const cache = opsCache.readdir.get(parsedPath.dir);
+      if (cache && !cache.cb[0]) {
+        cache.cb[1]!.push(parsedPath.base);
+        cache.cb[2]!.push(dirStat);
+      }
+
+      // Cache the new folder's contents (empty)
+      opsCache.readdir.set(path, {
+        timestamp: Date.now(),
+        cb: [0, [], []],
+      });
+
+      // Cache the new folder's attributes
+      opsCache.getattr.set(path, {
+        timestamp: Date.now(),
+        cb: [0, dirStat],
+      });
+
+      return cb(0);
     },
   };
 
